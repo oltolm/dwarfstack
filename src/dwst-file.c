@@ -423,51 +423,167 @@ static int findInlined( Dwarf_Debug dbg,Dwarf_Die die,inline_info *cuInfo )
   return( 1 );
 }
 
-typedef struct range_t
-{
-  Dwarf_Addr low;
-  Dwarf_Addr high;
-} range_t;
 
-typedef struct cu_info
-{
-  Dwarf_Off offs;
-  Dwarf_Addr low,high;
-  Dwarf_Line *lines;
-  Dwarf_Signed lineCount;
-  Dwarf_Line_Context lineContext;
-  int fileno_offs;
-  char **files;
-  Dwarf_Signed fileCount;
-  range_t *ranges;
-  int rangeCount;
-} cu_info;
-
-int dwstOfFileExt(
-    const char *name,const wchar_t *nameW,uint64_t imageBase,
-    uint64_t *addr,int count,
-    dwstCallback *callbackFunc,dwstCallbackW *callbackFuncW,
-    void *callbackContext )
-{
-  if( !nameW || !addr || !count || (!callbackFunc && !callbackFuncW) )
-    return( 0 );
-
+int dwstOfDwarfDebugExt(Dwarf_Debug dbg, Dwarf_Addr imageBase_dbg,
+                        const char *name, const wchar_t *nameW,
+                        uint64_t imageBase, uint64_t *addr, int count,
+                        dwstCallback *callbackFunc,
+                        dwstCallbackW *callbackFuncW, void *callbackContext,
+                        cu_info *cuArr, int cuQty) {
+  uint64_t baseOffs = 0;
   if( imageBase )
-    dwarf_callback( callbackFunc,callbackFuncW,imageBase,name,nameW,
-        DWST_BASE_ADDR,NULL,callbackContext,0 );
-
-  Dwarf_Addr imageBase_dbg;
-  Dwarf_Debug dbg;
-  if( dwarf_pe_init(nameW,&imageBase_dbg,0,0,&dbg,NULL)!=DW_DLV_OK )
   {
-    int i;
-    for( i=0; i<count; i++ )
-      dwarf_callback( callbackFunc,callbackFuncW,addr[i],name,nameW,
-          DWST_NO_DBG_SYM,NULL,callbackContext,0 );
-
-    return( count );
+    if( imageBase_dbg )
+      baseOffs = imageBase_dbg - imageBase;
   }
 
+  int i,j,k;
+  for( i=0; i<count; i++ )
+  {
+    uint64_t ptrOrig = addr[i];
+    uint64_t ptr = ptrOrig + baseOffs;
+
+    int found_ptr = 0;
+    for( j=0; j<cuQty; j++ )
+    {
+      cu_info *cuInfo = &cuArr[j];
+      if( cuInfo->high && (ptr<cuInfo->low || ptr>=cuInfo->high) )
+        continue;
+      for( k=0; k<cuInfo->rangeCount; ++k )
+        if( ptr>=cuInfo->ranges[k].low && ptr<cuInfo->ranges[k].high )
+          break;
+      if( k && k>=cuInfo->rangeCount )
+        continue;
+
+      Dwarf_Die die;
+      if( cuInfo->offs &&
+          dwarf_offdie_b(dbg,cuArr[j].offs,1,&die,NULL)==DW_DLV_OK )
+      {
+        Dwarf_Line *lines = cuInfo->lines;
+        Dwarf_Signed lineCount = cuInfo->lineCount;
+        if( lineCount<0 )
+        {
+          Dwarf_Unsigned lineVersion = 0;
+          Dwarf_Small tableCount = 0;
+          Dwarf_Line_Context lineContext = NULL;
+          if( dwarf_srclines_b(die,&lineVersion,
+                &tableCount,&lineContext,NULL)!=DW_DLV_OK ||
+              tableCount!=1 ||
+              dwarf_srclines_from_linecontext(lineContext,
+                &lines,&lineCount,NULL)!=DW_DLV_OK )
+          {
+            dwarf_srclines_dealloc_b( lineContext );
+            lines = NULL;
+            lineCount = 0;
+            lineContext = NULL;
+          }
+          cuInfo->lines = lines;
+          cuInfo->lineCount = lineCount;
+          cuInfo->lineContext = lineContext;
+          cuInfo->fileno_offs = lineVersion>=5 ? 0 : -1;
+        }
+
+        Dwarf_Unsigned srcfileno = 0;
+        Dwarf_Unsigned lineno = 0;
+        Dwarf_Unsigned columnno = 0;
+        if( lines )
+        {
+          int c;
+          int onEnd = 1;
+          Dwarf_Addr prevAdd = 0;
+          for( c=0; c<lineCount; c++ )
+          {
+            Dwarf_Addr add;
+            if( dwarf_lineaddr(lines[c],&add,NULL)!=DW_DLV_OK )
+              break;
+
+            if( onEnd || add<=ptr || prevAdd>ptr )
+            {
+              Dwarf_Bool endsequ;
+              if( dwarf_lineendsequence(lines[c],&endsequ,NULL)!=DW_DLV_OK )
+                break;
+
+              onEnd = endsequ;
+              prevAdd = add;
+              continue;
+            }
+
+            dwarf_line_srcfileno( lines[c-1],&srcfileno,NULL );
+            dwarf_lineno( lines[c-1],&lineno,NULL );
+            dwarf_lineoff_b( lines[c-1],&columnno,NULL );
+            break;
+          }
+        }
+
+        char **files = cuInfo->files;
+        Dwarf_Signed fileCount = cuInfo->fileCount;
+        if( (int)srcfileno+cuInfo->fileno_offs>=0 && lineno && fileCount<0 )
+        {
+          if( dwarf_srcfiles(die,&files,&fileCount,NULL)!=DW_DLV_OK )
+          {
+            files = NULL;
+            fileCount = 0;
+          }
+          cuInfo->files = files;
+          cuInfo->fileCount = fileCount;
+        }
+
+        if( (int)srcfileno+cuInfo->fileno_offs>=0 && lineno && files )
+        {
+          found_ptr = 1;
+
+          if( (int)srcfileno+cuInfo->fileno_offs<=fileCount )
+          {
+            inline_info ii = { ptr,cuInfo->low,
+              files,fileCount,callbackFunc,callbackFuncW,callbackContext,
+              ptrOrig,(int)srcfileno+cuInfo->fileno_offs,lineno,columnno,
+              cuInfo->fileno_offs };
+            walkChildren( dbg,die,(ChildWalker*)findInlined,&ii );
+          }
+          else
+            dwarf_callback( callbackFunc,callbackFuncW,ptrOrig,name,nameW,
+                DWST_NO_SRC_FILE,NULL,callbackContext,0 );
+        }
+
+        dwarf_dealloc( dbg,die,DW_DLA_DIE );
+      }
+
+      if( found_ptr ) break;
+    }
+
+    if( !found_ptr )
+      dwarf_callback( callbackFunc,callbackFuncW,ptrOrig,name,nameW,
+          DWST_NOT_FOUND,NULL,callbackContext,0 );
+  }
+
+  return( i );
+}
+
+int dwstOfDwarfDebug(Dwarf_Debug dbg, Dwarf_Addr imageBase_dbg,
+                     const char *name, uint64_t imageBase, uint64_t *addr,
+                     int count, dwstCallback *callbackFunc,
+                     void *callbackContext, cu_info *cuArr, int cuQty)
+{
+  wchar_t *nameW = dwst_ansi2wide(name);
+  int ret = dwstOfDwarfDebugExt(dbg, imageBase_dbg, name, nameW, imageBase,
+                                addr, count, callbackFunc, NULL,
+                                callbackContext, cuArr, cuQty);
+  free(nameW);
+  return (ret);
+}
+
+int dwstOfDwarfDebugW(Dwarf_Debug dbg, Dwarf_Addr imageBase_dbg,
+                      const wchar_t *nameW, uint64_t imageBase, uint64_t *addr,
+                      int count, dwstCallbackW *callbackFuncW,
+                      void *callbackContext, cu_info *cuArr, int cuQty)
+{
+  return (dwstOfDwarfDebugExt(dbg, imageBase_dbg, NULL, nameW, imageBase, addr,
+                              count, NULL, callbackFuncW, callbackContext,
+                              cuArr, cuQty));
+}
+
+void dwstReadCUs(Dwarf_Debug dbg, cu_info **cuArr_out, int *cuQty_out)
+{
   cu_info *cuArr = NULL;
   int cuQty = 0;
   while( 1 )
@@ -613,132 +729,13 @@ int dwstOfFileExt(
     dwarf_dealloc( dbg,die,DW_DLA_DIE );
   }
 
-  uint64_t baseOffs = 0;
-  if( imageBase )
-  {
-    if( imageBase_dbg )
-      baseOffs = imageBase_dbg - imageBase;
-  }
+  *cuArr_out = cuArr;
+  *cuQty_out = cuQty;
+}
 
-  int i,j,k;
-  for( i=0; i<count; i++ )
-  {
-    uint64_t ptrOrig = addr[i];
-    uint64_t ptr = ptrOrig + baseOffs;
-
-    int found_ptr = 0;
-    for( j=0; j<cuQty; j++ )
-    {
-      cu_info *cuInfo = &cuArr[j];
-      if( cuInfo->high && (ptr<cuInfo->low || ptr>=cuInfo->high) )
-        continue;
-      for( k=0; k<cuInfo->rangeCount; ++k )
-        if( ptr>=cuInfo->ranges[k].low && ptr<cuInfo->ranges[k].high )
-          break;
-      if( k && k>=cuInfo->rangeCount )
-        continue;
-
-      Dwarf_Die die;
-      if( cuInfo->offs &&
-          dwarf_offdie_b(dbg,cuArr[j].offs,1,&die,NULL)==DW_DLV_OK )
-      {
-        Dwarf_Line *lines = cuInfo->lines;
-        Dwarf_Signed lineCount = cuInfo->lineCount;
-        if( lineCount<0 )
-        {
-          Dwarf_Unsigned lineVersion = 0;
-          Dwarf_Small tableCount = 0;
-          Dwarf_Line_Context lineContext = NULL;
-          if( dwarf_srclines_b(die,&lineVersion,
-                &tableCount,&lineContext,NULL)!=DW_DLV_OK ||
-              tableCount!=1 ||
-              dwarf_srclines_from_linecontext(lineContext,
-                &lines,&lineCount,NULL)!=DW_DLV_OK )
-          {
-            dwarf_srclines_dealloc_b( lineContext );
-            lines = NULL;
-            lineCount = 0;
-            lineContext = NULL;
-          }
-          cuInfo->lines = lines;
-          cuInfo->lineCount = lineCount;
-          cuInfo->lineContext = lineContext;
-          cuInfo->fileno_offs = lineVersion>=5 ? 0 : -1;
-        }
-
-        Dwarf_Unsigned srcfileno = 0;
-        Dwarf_Unsigned lineno = 0;
-        Dwarf_Unsigned columnno = 0;
-        if( lines )
-        {
-          int c;
-          int onEnd = 1;
-          Dwarf_Addr prevAdd = 0;
-          for( c=0; c<lineCount; c++ )
-          {
-            Dwarf_Addr add;
-            if( dwarf_lineaddr(lines[c],&add,NULL)!=DW_DLV_OK )
-              break;
-
-            if( onEnd || add<=ptr || prevAdd>ptr )
-            {
-              Dwarf_Bool endsequ;
-              if( dwarf_lineendsequence(lines[c],&endsequ,NULL)!=DW_DLV_OK )
-                break;
-
-              onEnd = endsequ;
-              prevAdd = add;
-              continue;
-            }
-
-            dwarf_line_srcfileno( lines[c-1],&srcfileno,NULL );
-            dwarf_lineno( lines[c-1],&lineno,NULL );
-            dwarf_lineoff_b( lines[c-1],&columnno,NULL );
-            break;
-          }
-        }
-
-        char **files = cuInfo->files;
-        Dwarf_Signed fileCount = cuInfo->fileCount;
-        if( (int)srcfileno+cuInfo->fileno_offs>=0 && lineno && fileCount<0 )
-        {
-          if( dwarf_srcfiles(die,&files,&fileCount,NULL)!=DW_DLV_OK )
-          {
-            files = NULL;
-            fileCount = 0;
-          }
-          cuInfo->files = files;
-          cuInfo->fileCount = fileCount;
-        }
-
-        if( (int)srcfileno+cuInfo->fileno_offs>=0 && lineno && files )
-        {
-          found_ptr = 1;
-
-          if( (int)srcfileno+cuInfo->fileno_offs<=fileCount )
-          {
-            inline_info ii = { ptr,cuInfo->low,
-              files,fileCount,callbackFunc,callbackFuncW,callbackContext,
-              ptrOrig,(int)srcfileno+cuInfo->fileno_offs,lineno,columnno,
-              cuInfo->fileno_offs };
-            walkChildren( dbg,die,(ChildWalker*)findInlined,&ii );
-          }
-          else
-            dwarf_callback( callbackFunc,callbackFuncW,ptrOrig,name,nameW,
-                DWST_NO_SRC_FILE,NULL,callbackContext,0 );
-        }
-
-        dwarf_dealloc( dbg,die,DW_DLA_DIE );
-      }
-
-      if( found_ptr ) break;
-    }
-
-    if( !found_ptr )
-      dwarf_callback( callbackFunc,callbackFuncW,ptrOrig,name,nameW,
-          DWST_NOT_FOUND,NULL,callbackContext,0 );
-  }
-
+void dwstFreeCUs(Dwarf_Debug dbg, cu_info *cuArr, int cuQty)
+{
+  int j;
   for( j=0; j<cuQty; j++ )
   {
     if( cuArr[j].lines )
@@ -760,8 +757,46 @@ int dwstOfFileExt(
   free( cuArr );
 
   dwarf_pe_finish( dbg,NULL );
+}
 
-  return( i );
+int dwstOfFileExt(
+    const char *name,const wchar_t *nameW,uint64_t imageBase,
+    uint64_t *addr,int count,
+    dwstCallback *callbackFunc,dwstCallbackW *callbackFuncW,
+    void *callbackContext )
+{
+  if( !nameW || !addr || !count || (!callbackFunc && !callbackFuncW) )
+    return( 0 );
+
+  if( imageBase )
+    dwarf_callback( callbackFunc,callbackFuncW,imageBase,name,nameW,
+        DWST_BASE_ADDR,NULL,callbackContext,0 );
+
+  Dwarf_Addr imageBase_dbg;
+  Dwarf_Debug dbg;
+  if( dwarf_pe_init(nameW,&imageBase_dbg,0,0,&dbg,NULL)!=DW_DLV_OK )
+  {
+    int i;
+    for( i=0; i<count; i++ )
+      dwarf_callback( callbackFunc,callbackFuncW,addr[i],name,nameW,
+          DWST_NO_DBG_SYM,NULL,callbackContext,0 );
+
+    return( count );
+  }
+
+  cu_info *cuArr = NULL;
+  int cuQty = 0;
+  dwstReadCUs(dbg, &cuArr, &cuQty);
+
+  int res = dwstOfDwarfDebugExt(dbg, imageBase_dbg, name, nameW, imageBase,
+                                addr, count, callbackFunc, callbackFuncW,
+                                callbackContext, cuArr, cuQty);
+
+  dwstFreeCUs(dbg, cuArr, cuQty);
+
+  dwarf_pe_finish(dbg, NULL);
+
+  return (res);
 }
 
 int dwstOfFile(

@@ -20,6 +20,7 @@
 #ifndef __DWARFSTACK_H__
 #define __DWARFSTACK_H__
 
+#include "libdwarf.h"
 #include <stdint.h>
 
 
@@ -75,6 +76,39 @@ typedef void dwstCallbackW(
 //   filename:          executable location
 #define DWST_NOT_FOUND          -3
 
+typedef struct range_t {
+  Dwarf_Addr low;
+  Dwarf_Addr high;
+} range_t;
+
+typedef struct cu_info {
+  Dwarf_Off offs;
+  Dwarf_Addr low, high;
+  Dwarf_Line *lines;
+  Dwarf_Signed lineCount;
+  Dwarf_Line_Context lineContext;
+  int fileno_offs;
+  char **files;
+  Dwarf_Signed fileCount;
+  range_t *ranges;
+  int rangeCount;
+} cu_info;
+
+EXPORT int dwstOfDwarfDebug(Dwarf_Debug dbg, uint64_t imageBase_dbg,
+                            const char *name, uint64_t imageBase,
+                            uint64_t *addr, int count,
+                            dwstCallback *callbackFunc, void *callbackContext,
+                            cu_info *cuArr, int cuQty);
+
+EXPORT int dwstOfDwarfDebugW(Dwarf_Debug dbg, uint64_t imageBase_dbg,
+                             const wchar_t *nameW, uint64_t imageBase,
+                             uint64_t *addr, int count,
+                             dwstCallbackW *callbackFuncW,
+                             void *callbackContext, cu_info *cuArr, int cuQty);
+
+EXPORT void dwstReadCUs(Dwarf_Debug dbg, cu_info **cuArr_out, int *cuQty_out);
+
+EXPORT void dwstFreeCUs(Dwarf_Debug dbg, cu_info *cuArr, int cuQty);
 
 // dwstOfFile(): stack information of file
 //   name:              executable location
