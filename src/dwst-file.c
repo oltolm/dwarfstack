@@ -335,12 +335,10 @@ static int findInlined( Dwarf_Debug dbg,Dwarf_Die die,inline_info *cuInfo )
       {
         unsigned entrylen = 0;
         unsigned code = 0;
-        Dwarf_Unsigned lowpc = 0;
-        Dwarf_Unsigned highpc = 0;
         Dwarf_Bool debug_addr_unavailable = 0;
         int res = dwarf_get_rnglists_entry_fields_a( rnghlhead,i,
             &entrylen,&code,NULL,NULL,
-            &debug_addr_unavailable,&lowpc,&highpc,NULL );
+            &debug_addr_unavailable,&low,&high,NULL );
         if( res!=DW_DLV_OK || code==DW_RLE_end_of_list )
         {
           i = rngEntriesCount;
@@ -350,7 +348,7 @@ static int findInlined( Dwarf_Debug dbg,Dwarf_Die die,inline_info *cuInfo )
             debug_addr_unavailable )
           continue;
 
-        if( cuInfo->ptr<lowpc || cuInfo->ptr>=highpc )
+        if( cuInfo->ptr<low || cuInfo->ptr>=high )
           continue;
 
         break;
@@ -367,7 +365,7 @@ static int findInlined( Dwarf_Debug dbg,Dwarf_Die die,inline_info *cuInfo )
     char *funcname = dwarf_name_of_func_linked( dbg,die );
 
     dwarf_callback( cuInfo->callbackFunc,cuInfo->callbackFuncW,
-        cuInfo->ptrOrig,cuInfo->files[cuInfo->fileno],NULL,
+        cuInfo->ptr - low,cuInfo->files[cuInfo->fileno],NULL,
         cuInfo->lineno,funcname,cuInfo->callbackContext,cuInfo->columnno );
 
     if( funcname )
@@ -395,7 +393,7 @@ static int findInlined( Dwarf_Debug dbg,Dwarf_Die die,inline_info *cuInfo )
     char *funcname = dwarf_name_of_func_linked( dbg,die );
 
     dwarf_callback( cuInfo->callbackFunc,cuInfo->callbackFuncW,
-        cuInfo->ptrOrig,cuInfo->files[cuInfo->fileno],NULL,
+        cuInfo->ptr - low,cuInfo->files[cuInfo->fileno],NULL,
         cuInfo->lineno,funcname,cuInfo->callbackContext,cuInfo->columnno );
 
     cuInfo->fileno = fileno + cuInfo->fileno_offs;
