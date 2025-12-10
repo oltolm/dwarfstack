@@ -421,6 +421,23 @@ static int findInlined( Dwarf_Debug dbg,Dwarf_Die die,inline_info *cuInfo )
   return( 1 );
 }
 
+typedef struct range_t {
+  Dwarf_Addr low;
+  Dwarf_Addr high;
+} range_t;
+
+typedef struct cu_info {
+  Dwarf_Off offs;
+  Dwarf_Addr low, high;
+  Dwarf_Line *lines;
+  Dwarf_Signed lineCount;
+  Dwarf_Line_Context lineContext;
+  int fileno_offs;
+  char **files;
+  Dwarf_Signed fileCount;
+  range_t *ranges;
+  int rangeCount;
+} cu_info;
 
 int dwstOfDwarfDebugExt(Dwarf_Debug dbg, Dwarf_Addr imageBase_dbg,
                         const char *name, const wchar_t *nameW,
@@ -560,7 +577,7 @@ int dwstOfDwarfDebugExt(Dwarf_Debug dbg, Dwarf_Addr imageBase_dbg,
 int dwstOfDwarfDebug(Dwarf_Debug dbg, Dwarf_Addr imageBase_dbg,
                      const char *name, uint64_t imageBase, uint64_t *addr,
                      int count, dwstCallback *callbackFunc,
-                     void *callbackContext, cu_info *cuArr, int cuQty)
+                     void *callbackContext, void *cuArr, int cuQty)
 {
   wchar_t *nameW = dwst_ansi2wide(name);
   int ret = dwstOfDwarfDebugExt(dbg, imageBase_dbg, name, nameW, imageBase,
@@ -573,14 +590,14 @@ int dwstOfDwarfDebug(Dwarf_Debug dbg, Dwarf_Addr imageBase_dbg,
 int dwstOfDwarfDebugW(Dwarf_Debug dbg, Dwarf_Addr imageBase_dbg,
                       const wchar_t *nameW, uint64_t imageBase, uint64_t *addr,
                       int count, dwstCallbackW *callbackFuncW,
-                      void *callbackContext, cu_info *cuArr, int cuQty)
+                      void *callbackContext, void *cuArr, int cuQty)
 {
   return (dwstOfDwarfDebugExt(dbg, imageBase_dbg, NULL, nameW, imageBase, addr,
                               count, NULL, callbackFuncW, callbackContext,
                               cuArr, cuQty));
 }
 
-void dwstReadCUs(Dwarf_Debug dbg, cu_info **cuArr_out, int *cuQty_out)
+void dwstReadCUs(Dwarf_Debug dbg, void **cuArr_out, int *cuQty_out)
 {
   cu_info *cuArr = NULL;
   int cuQty = 0;
@@ -731,9 +748,10 @@ void dwstReadCUs(Dwarf_Debug dbg, cu_info **cuArr_out, int *cuQty_out)
   *cuQty_out = cuQty;
 }
 
-void dwstFreeCUs(Dwarf_Debug dbg, cu_info *cuArr, int cuQty)
+void dwstFreeCUs(Dwarf_Debug dbg, void *cuArr_, int cuQty)
 {
   int j;
+  cu_info *cuArr = (cu_info*)cuArr_;
   for( j=0; j<cuQty; j++ )
   {
     if( cuArr[j].lines )
@@ -784,7 +802,7 @@ int dwstOfFileExt(
 
   cu_info *cuArr = NULL;
   int cuQty = 0;
-  dwstReadCUs(dbg, &cuArr, &cuQty);
+  dwstReadCUs(dbg, (void**)&cuArr, &cuQty);
 
   int res = dwstOfDwarfDebugExt(dbg, imageBase_dbg, name, nameW, imageBase,
                                 addr, count, callbackFunc, callbackFuncW,
