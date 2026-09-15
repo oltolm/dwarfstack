@@ -444,30 +444,21 @@ typedef struct cu_info
   int rangeCount;
 } cu_info;
 
-int dwstOfFileExt(
-    const char *name,const wchar_t *nameW,uint64_t imageBase,
-    uint64_t *addr,int count,
-    dwstCallback *callbackFunc,dwstCallbackW *callbackFuncW,
-    void *callbackContext )
+struct dwst_module
 {
-  if( !nameW || !addr || !count || (!callbackFunc && !callbackFuncW) )
-    return( 0 );
-
-  if( imageBase )
-    dwarf_callback( callbackFunc,callbackFuncW,imageBase,name,nameW,
-        DWST_BASE_ADDR,NULL,callbackContext,0 );
-
-  Dwarf_Addr imageBase_dbg;
   Dwarf_Debug dbg;
-  if( dwarf_pe_init(nameW,&imageBase_dbg,0,0,&dbg,NULL)!=DW_DLV_OK )
-  {
-    int i;
-    for( i=0; i<count; i++ )
-      dwarf_callback( callbackFunc,callbackFuncW,addr[i],name,nameW,
-          DWST_NO_DBG_SYM,NULL,callbackContext,0 );
+  Dwarf_Addr imageBase_dbg;
+  cu_info *cuArr;
+  int cuQty;
+};
 
-    return( count );
-  }
+dwst_module *dwstModuleOpen(
+    void *dbg,uint64_t imageBase_dbg )
+{
+  if( !dbg ) return( NULL );
+
+  dwst_module *module = malloc( sizeof(dwst_module) );
+  if( !module ) return( NULL );
 
   cu_info *cuArr = NULL;
   int cuQty = 0;
@@ -608,6 +599,25 @@ int dwstOfFileExt(
     dwarf_dealloc( dbg,die,DW_DLA_DIE );
   }
 
+  module->dbg = dbg;
+  module->imageBase_dbg = imageBase_dbg;
+  module->cuArr = cuArr;
+  module->cuQty = cuQty;
+
+  return( module );
+}
+
+static int dwstOfModuleExt(
+    dwst_module *module,const char *name,const wchar_t *nameW,
+    uint64_t imageBase,uint64_t *addr,int count,
+    dwstCallback *callbackFunc,dwstCallbackW *callbackFuncW,
+    void *callbackContext )
+{
+  Dwarf_Debug dbg = module->dbg;
+  Dwarf_Addr imageBase_dbg = module->imageBase_dbg;
+  cu_info *cuArr = module->cuArr;
+  int cuQty = module->cuQty;
+
   uint64_t baseOffs = 0;
   if( imageBase )
   {
@@ -734,6 +744,18 @@ int dwstOfFileExt(
           DWST_NOT_FOUND,NULL,callbackContext,0 );
   }
 
+  return( i );
+}
+
+void dwstModuleClose(
+    dwst_module *module )
+{
+  if( !module ) return;
+
+  Dwarf_Debug dbg = module->dbg;
+  cu_info *cuArr = module->cuArr;
+  int cuQty = module->cuQty;
+  int j;
   for( j=0; j<cuQty; j++ )
   {
     if( cuArr[j].lines )
@@ -753,10 +775,47 @@ int dwstOfFileExt(
     free( cuArr[j].ranges );
   }
   free( cuArr );
+  free( module );
+}
+
+int dwstOfFileExt(
+    const char *name,const wchar_t *nameW,uint64_t imageBase,
+    uint64_t *addr,int count,
+    dwstCallback *callbackFunc,dwstCallbackW *callbackFuncW,
+    void *callbackContext )
+{
+  if( !nameW || !addr || !count || (!callbackFunc && !callbackFuncW) )
+    return( 0 );
+
+  if( imageBase )
+    dwarf_callback( callbackFunc,callbackFuncW,imageBase,name,nameW,
+        DWST_BASE_ADDR,NULL,callbackContext,0 );
+
+  Dwarf_Addr imageBase_dbg;
+  Dwarf_Debug dbg;
+  if( dwarf_pe_init(nameW,&imageBase_dbg,0,0,&dbg,NULL)!=DW_DLV_OK )
+  {
+    int i;
+    for( i=0; i<count; i++ )
+      dwarf_callback( callbackFunc,callbackFuncW,addr[i],name,nameW,
+          DWST_NO_DBG_SYM,NULL,callbackContext,0 );
+
+    return( count );
+  }
+
+  int ret = 0;
+  dwst_module *module = dwstModuleOpen( dbg,imageBase_dbg );
+  if( module )
+  {
+    ret = dwstOfModuleExt( module,name,nameW,imageBase,addr,count,
+        callbackFunc,callbackFuncW,callbackContext );
+
+    dwstModuleClose( module );
+  }
 
   dwarf_pe_finish( dbg,NULL );
 
-  return( i );
+  return( ret );
 }
 
 int dwstOfFile(

@@ -95,6 +95,22 @@ EXPORT int dwstOfFileW(
     dwstCallbackW *callbackFunc,void *callbackContext );
 
 
+typedef struct dwst_module dwst_module;
+
+// dwstModuleOpen(): prepare debug information for repeated lookups
+//   dbg:               Dwarf_Debug of the executable
+//                        (has to stay valid until dwstModuleClose())
+//   imageBase_dbg:     preferred image base address of the executable
+EXPORT dwst_module *dwstModuleOpen(
+    void *dbg,uint64_t imageBase_dbg );
+
+// dwstModuleClose(): free module created by dwstModuleOpen()
+//   (dbg itself is not freed)
+//   module:            module handle
+EXPORT void dwstModuleClose(
+    dwst_module *module );
+
+
 // dwstOfProcess(): stack information of current process
 //   addr:              stack addresses
 //   count:             number of addresses
