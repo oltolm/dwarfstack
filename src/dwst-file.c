@@ -613,6 +613,9 @@ static int dwstOfModuleExt(
     dwstCallback *callbackFunc,dwstCallbackW *callbackFuncW,
     void *callbackContext )
 {
+  if( !module || !addr || !count || (!callbackFunc && !callbackFuncW) )
+    return( 0 );
+
   Dwarf_Debug dbg = module->dbg;
   Dwarf_Addr imageBase_dbg = module->imageBase_dbg;
   cu_info *cuArr = module->cuArr;
@@ -836,5 +839,26 @@ int dwstOfFileW(
     dwstCallbackW *callbackFunc,void *callbackContext )
 {
   return( dwstOfFileExt(NULL,name,imageBase,addr,count,
+        NULL,callbackFunc,callbackContext) );
+}
+
+int dwstOfModule(
+    dwst_module *module,const char *name,uint64_t imageBase,
+    uint64_t *addr,int count,
+    dwstCallback *callbackFunc,void *callbackContext )
+{
+  wchar_t *nameW = dwst_ansi2wide( name );
+  int ret = dwstOfModuleExt( module,name,nameW,imageBase,addr,count,
+      callbackFunc,NULL,callbackContext );
+  free( nameW );
+  return( ret );
+}
+
+int dwstOfModuleW(
+    dwst_module *module,const wchar_t *name,uint64_t imageBase,
+    uint64_t *addr,int count,
+    dwstCallbackW *callbackFunc,void *callbackContext )
+{
+  return( dwstOfModuleExt(module,NULL,name,imageBase,addr,count,
         NULL,callbackFunc,callbackContext) );
 }

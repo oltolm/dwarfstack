@@ -110,6 +110,24 @@ EXPORT dwst_module *dwstModuleOpen(
 EXPORT void dwstModuleClose(
     dwst_module *module );
 
+// dwstOfModule(): stack information of module
+//   module:            module handle from dwstModuleOpen()
+//   name:              executable location
+//   imageBase:         used image base address
+//   addr:              stack addresses
+//   count:             number of addresses
+//   callbackFunc:      callback function
+//   callbackContext:   user-provided pointer (context)
+EXPORT int dwstOfModule(
+    dwst_module *module,const char *name,uint64_t imageBase,
+    uint64_t *addr,int count,
+    dwstCallback *callbackFunc,void *callbackContext );
+
+EXPORT int dwstOfModuleW(
+    dwst_module *module,const wchar_t *name,uint64_t imageBase,
+    uint64_t *addr,int count,
+    dwstCallbackW *callbackFunc,void *callbackContext );
+
 
 // dwstOfProcess(): stack information of current process
 //   addr:              stack addresses
