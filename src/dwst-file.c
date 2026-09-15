@@ -267,7 +267,28 @@ typedef struct inline_info
   uint64_t ptrOrig;
   int fileno,lineno,columnno;
   int fileno_offs;
+  Dwarf_Addr lineaddr;
+  uint64_t baseOffs;
+  int reportAddrs;
 } inline_info;
+
+// report start addresses of function and source line
+static void dwarf_callback_addrs( inline_info *cuInfo,
+    Dwarf_Addr low,const char *funcname )
+{
+  if( !cuInfo->reportAddrs ) return;
+
+  if( low )
+    dwarf_callback( cuInfo->callbackFunc,cuInfo->callbackFuncW,
+        low - cuInfo->baseOffs,NULL,NULL,
+        DWST_FUNC_ADDR,funcname,cuInfo->callbackContext,cuInfo->columnno );
+
+  // lineaddr is 0 for the outer frames of inlined code, DWARF doesn't
+  // store where the code of the call line starts
+  dwarf_callback( cuInfo->callbackFunc,cuInfo->callbackFuncW,
+      cuInfo->lineaddr ? cuInfo->lineaddr - cuInfo->baseOffs : 0,NULL,NULL,
+      DWST_LINE_ADDR,funcname,cuInfo->callbackContext,cuInfo->columnno );
+}
 
 // find the calling-location of inlined functions
 static int findInlined( Dwarf_Debug dbg,Dwarf_Die die,inline_info *cuInfo )
@@ -353,6 +374,7 @@ static int findInlined( Dwarf_Debug dbg,Dwarf_Die die,inline_info *cuInfo )
         if( cuInfo->ptr<lowpc || cuInfo->ptr>=highpc )
           continue;
 
+        low = lowpc;
         break;
       }
 
@@ -365,6 +387,8 @@ static int findInlined( Dwarf_Debug dbg,Dwarf_Die die,inline_info *cuInfo )
   if( tag==DW_TAG_subprogram )
   {
     char *funcname = dwarf_name_of_func_linked( dbg,die );
+
+    dwarf_callback_addrs( cuInfo,low,funcname );
 
     dwarf_callback( cuInfo->callbackFunc,cuInfo->callbackFuncW,
         cuInfo->ptrOrig,cuInfo->files[cuInfo->fileno],NULL,
@@ -394,6 +418,8 @@ static int findInlined( Dwarf_Debug dbg,Dwarf_Die die,inline_info *cuInfo )
   {
     char *funcname = dwarf_name_of_func_linked( dbg,die );
 
+    dwarf_callback_addrs( cuInfo,low,funcname );
+
     dwarf_callback( cuInfo->callbackFunc,cuInfo->callbackFuncW,
         cuInfo->ptrOrig,cuInfo->files[cuInfo->fileno],NULL,
         cuInfo->lineno,funcname,cuInfo->callbackContext,cuInfo->columnno );
@@ -402,6 +428,7 @@ static int findInlined( Dwarf_Debug dbg,Dwarf_Die die,inline_info *cuInfo )
     cuInfo->lineno = lineno;
     cuInfo->columnno = 0;
     cuInfo->ptrOrig = 0;
+    cuInfo->lineaddr = 0;
 
     Dwarf_Attribute callcolumn;
     if( dwarf_attr(die,DW_AT_call_column,&callcolumn,NULL)==DW_DLV_OK )
@@ -611,7 +638,7 @@ static int dwstOfModuleExt(
     dwst_module *module,const char *name,const wchar_t *nameW,
     uint64_t imageBase,uint64_t *addr,int count,
     dwstCallback *callbackFunc,dwstCallbackW *callbackFuncW,
-    void *callbackContext )
+    void *callbackContext,int reportAddrs )
 {
   if( !module || !addr || !count || (!callbackFunc && !callbackFuncW) )
     return( 0 );
@@ -677,6 +704,7 @@ static int dwstOfModuleExt(
         Dwarf_Unsigned srcfileno = 0;
         Dwarf_Unsigned lineno = 0;
         Dwarf_Unsigned columnno = 0;
+        Dwarf_Addr lineaddr = 0;
         if( lines )
         {
           int c;
@@ -699,6 +727,7 @@ static int dwstOfModuleExt(
               continue;
             }
 
+            dwarf_lineaddr( lines[c-1],&lineaddr,NULL );
             dwarf_line_srcfileno( lines[c-1],&srcfileno,NULL );
             dwarf_lineno( lines[c-1],&lineno,NULL );
             dwarf_lineoff_b( lines[c-1],&columnno,NULL );
@@ -728,7 +757,7 @@ static int dwstOfModuleExt(
             inline_info ii = { ptr,cuInfo->base,
               files,fileCount,callbackFunc,callbackFuncW,callbackContext,
               ptrOrig,(int)srcfileno+cuInfo->fileno_offs,lineno,columnno,
-              cuInfo->fileno_offs };
+              cuInfo->fileno_offs,lineaddr,baseOffs,reportAddrs };
             walkChildren( dbg,die,(ChildWalker*)findInlined,&ii );
           }
           else
@@ -811,7 +840,7 @@ int dwstOfFileExt(
   if( module )
   {
     ret = dwstOfModuleExt( module,name,nameW,imageBase,addr,count,
-        callbackFunc,callbackFuncW,callbackContext );
+        callbackFunc,callbackFuncW,callbackContext,0 );
 
     dwstModuleClose( module );
   }
@@ -849,7 +878,7 @@ int dwstOfModule(
 {
   wchar_t *nameW = dwst_ansi2wide( name );
   int ret = dwstOfModuleExt( module,name,nameW,imageBase,addr,count,
-      callbackFunc,NULL,callbackContext );
+      callbackFunc,NULL,callbackContext,1 );
   free( nameW );
   return( ret );
 }
@@ -860,5 +889,5 @@ int dwstOfModuleW(
     dwstCallbackW *callbackFunc,void *callbackContext )
 {
   return( dwstOfModuleExt(module,NULL,name,imageBase,addr,count,
-        NULL,callbackFunc,callbackContext) );
+        NULL,callbackFunc,callbackContext,1) );
 }
