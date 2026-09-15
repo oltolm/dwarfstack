@@ -44,6 +44,9 @@ extern "C" {
 //   funcname:          function name
 //   context:           user-provided pointer (callbackContext)
 //   columnno:          column number
+// For an address inside inlined code, the callback is called once per
+// inlined function (innermost first) and finally for the containing
+// function; addr is 0 for all but the first of these calls.
 typedef void dwstCallback(
     uint64_t addr,const char *filename,int lineno,const char *funcname,
     void *context,int columnno );
@@ -75,6 +78,20 @@ typedef void dwstCallbackW(
 //   filename:          executable location
 #define DWST_NOT_FOUND          -3
 
+// DWST_LINE_ADDR: start address of the source line (only dwstOfModule())
+//   addr:              line address
+//                        (0 for the outer frames of inlined code)
+//   filename:          NULL
+//   funcname:          function name
+#define DWST_LINE_ADDR          -4
+
+// DWST_FUNC_ADDR: start address of the function (only dwstOfModule())
+//   addr:              function address
+//   filename:          NULL
+//   funcname:          function name
+#define DWST_FUNC_ADDR          -5
+
+
 typedef struct dwst_module dwst_module;
 
 // dwstModuleOpen(): prepare debug information for repeated lookups
@@ -91,6 +108,8 @@ EXPORT void dwstModuleClose(
     dwst_module *module );
 
 // dwstOfModule(): stack information of module
+//   (like dwstOfFile(), but additionally reports DWST_FUNC_ADDR and
+//   DWST_LINE_ADDR before each resolved frame)
 //   module:            module handle from dwstModuleOpen()
 //   name:              executable location
 //   imageBase:         used image base address
