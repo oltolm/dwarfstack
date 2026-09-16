@@ -507,8 +507,7 @@ int dwstOfFileExt(
     cuInfo->base = res==DW_DLV_OK ? cuInfo->low : 0;
     if( res!=DW_DLV_OK || !cuInfo->high )
     {
-      int hasLow = res==DW_DLV_OK && cuInfo->low;
-      if( !hasLow ) cuInfo->low = 0;
+      if( res!=DW_DLV_OK ) cuInfo->low = 0;
       cuInfo->high = 0;
 
       Dwarf_Half version;
@@ -546,11 +545,8 @@ int dwstOfFileExt(
 
             if( !low ) continue;
 
-            if( !hasLow || low<cuInfo->low )
-            {
+            if( !cuInfo->low || low<cuInfo->low )
               cuInfo->low = low;
-              hasLow = 1;
-            }
             if( high>cuInfo->high )
               cuInfo->high = high;
 
@@ -587,11 +583,8 @@ int dwstOfFileExt(
                 debug_addr_unavailable || !lowpc )
               continue;
 
-            if( !hasLow || lowpc<cuInfo->low )
-            {
+            if( !cuInfo->low || lowpc<cuInfo->low )
               cuInfo->low = lowpc;
-              hasLow = 1;
-            }
             if( highpc>cuInfo->high )
               cuInfo->high = highpc;
 
