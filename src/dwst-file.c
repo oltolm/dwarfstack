@@ -433,6 +433,7 @@ typedef struct cu_info
 {
   Dwarf_Off offs;
   Dwarf_Addr low,high;
+  Dwarf_Addr base;
   Dwarf_Line *lines;
   Dwarf_Signed lineCount;
   Dwarf_Line_Context lineContext;
@@ -503,6 +504,7 @@ int dwstOfFileExt(
     cuInfo->low = 0;
     cuInfo->high = 0;
     int res = dwarf_lowhighpc( die,&cuInfo->low,&cuInfo->high );
+    cuInfo->base = res==DW_DLV_OK ? cuInfo->low : 0;
     if( res!=DW_DLV_OK || !cuInfo->high )
     {
       int hasLow = res==DW_DLV_OK && cuInfo->low;
@@ -520,7 +522,7 @@ int dwstOfFileExt(
         if( version<=4 )
         {
           int i;
-          Dwarf_Addr base = cuInfo->low;
+          Dwarf_Addr base = cuInfo->base;
           cuInfo->ranges = malloc( rangeCount*sizeof(range_t) );
           if( !cuInfo->ranges ) rangeCount = 0;
           for( i=0; i<rangeCount; i++ )
@@ -717,7 +719,7 @@ int dwstOfFileExt(
 
           if( (int)srcfileno+cuInfo->fileno_offs<=fileCount )
           {
-            inline_info ii = { ptr,cuInfo->low,
+            inline_info ii = { ptr,cuInfo->base,
               files,fileCount,callbackFunc,callbackFuncW,callbackContext,
               ptrOrig,(int)srcfileno+cuInfo->fileno_offs,lineno,columnno,
               cuInfo->fileno_offs };
