@@ -73,7 +73,7 @@ typedef struct {
 
 static int
 pe_get_section_info(void *obj,
-                    Dwarf_Half section_index,
+                    Dwarf_Unsigned section_index,
                     Dwarf_Obj_Access_Section_a *return_section,
                     UNUSEDARG int *error)
 {
@@ -147,7 +147,7 @@ pe_get_section_count(void *obj)
 
 static int
 pe_load_section(void *obj,
-                Dwarf_Half section_index,
+                Dwarf_Unsigned section_index,
                 Dwarf_Small **return_data,
                 UNUSEDARG int *error)
 {
