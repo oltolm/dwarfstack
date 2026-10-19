@@ -365,7 +365,7 @@ static int findInlined( Dwarf_Debug dbg,Dwarf_Die die,inline_info *cuInfo )
     char *funcname = dwarf_name_of_func_linked( dbg,die );
 
     dwarf_callback( cuInfo->callbackFunc,cuInfo->callbackFuncW,
-        cuInfo->ptr - low,cuInfo->files[cuInfo->fileno],NULL,
+        cuInfo->ptrOrig,cuInfo->files[cuInfo->fileno],NULL,
         cuInfo->lineno,funcname,cuInfo->callbackContext,cuInfo->columnno );
 
     if( funcname )
@@ -393,7 +393,7 @@ static int findInlined( Dwarf_Debug dbg,Dwarf_Die die,inline_info *cuInfo )
     char *funcname = dwarf_name_of_func_linked( dbg,die );
 
     dwarf_callback( cuInfo->callbackFunc,cuInfo->callbackFuncW,
-        cuInfo->ptr - low,cuInfo->files[cuInfo->fileno],NULL,
+        cuInfo->ptrOrig,cuInfo->files[cuInfo->fileno],NULL,
         cuInfo->lineno,funcname,cuInfo->callbackContext,cuInfo->columnno );
 
     cuInfo->fileno = fileno + cuInfo->fileno_offs;
