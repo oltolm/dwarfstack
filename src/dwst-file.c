@@ -28,7 +28,7 @@
 typedef int ChildWalker( Dwarf_Debug dbg,Dwarf_Die die,void *context );
 
 // call walkFunc() recursively for every child DIE
-static int walkChilds( Dwarf_Debug dbg,Dwarf_Die die,
+static int walkChildren( Dwarf_Debug dbg,Dwarf_Die die,
     ChildWalker *walkFunc,void *context )
 {
   Dwarf_Die child;
@@ -37,10 +37,10 @@ static int walkChilds( Dwarf_Debug dbg,Dwarf_Die die,
 
   while( 1 )
   {
-    int stopChilds = walkChilds( dbg,child,walkFunc,context );
+    int stopChildren = walkChildren( dbg,child,walkFunc,context );
     int stopCur = walkFunc( dbg,child,context );
 
-    if( stopChilds || stopCur )
+    if( stopChildren || stopCur )
     {
       dwarf_dealloc( dbg,child,DW_DLA_DIE );
       return( 1 );
@@ -429,6 +429,7 @@ typedef struct range_t {
 typedef struct cu_info {
   Dwarf_Off offs;
   Dwarf_Addr low, high;
+  Dwarf_Addr base;
   Dwarf_Line *lines;
   Dwarf_Signed lineCount;
   Dwarf_Line_Context lineContext;
@@ -549,11 +550,11 @@ int dwstOfDwarfDebugExt(Dwarf_Debug dbg, Dwarf_Addr imageBase_dbg,
 
           if( (int)srcfileno+cuInfo->fileno_offs<=fileCount )
           {
-            inline_info ii = { ptr,cuInfo->low,
+            inline_info ii = { ptr,cuInfo->base,
               files,fileCount,callbackFunc,callbackFuncW,callbackContext,
               ptrOrig,(int)srcfileno+cuInfo->fileno_offs,lineno,columnno,
               cuInfo->fileno_offs };
-            walkChilds( dbg,die,(ChildWalker*)findInlined,&ii );
+            walkChildren( dbg,die,(ChildWalker*)findInlined,&ii );
           }
           else
             dwarf_callback( callbackFunc,callbackFuncW,ptrOrig,name,nameW,
@@ -634,10 +635,10 @@ void dwstReadCUs(Dwarf_Debug dbg, void **cuArr_out, int *cuQty_out)
     cuInfo->low = 0;
     cuInfo->high = 0;
     int res = dwarf_lowhighpc( die,&cuInfo->low,&cuInfo->high );
+    cuInfo->base = res==DW_DLV_OK ? cuInfo->low : 0;
     if( res!=DW_DLV_OK || !cuInfo->high )
     {
-      int hasLow = res==DW_DLV_OK && cuInfo->low;
-      if( !hasLow ) cuInfo->low = 0;
+      if( res!=DW_DLV_OK ) cuInfo->low = 0;
       cuInfo->high = 0;
 
       Dwarf_Half version;
@@ -651,7 +652,7 @@ void dwstReadCUs(Dwarf_Debug dbg, void **cuArr_out, int *cuQty_out)
         if( version<=4 )
         {
           int i;
-          Dwarf_Addr base = cuInfo->low;
+          Dwarf_Addr base = cuInfo->base;
           cuInfo->ranges = malloc( rangeCount*sizeof(range_t) );
           if( !cuInfo->ranges ) rangeCount = 0;
           for( i=0; i<rangeCount; i++ )
@@ -675,11 +676,8 @@ void dwstReadCUs(Dwarf_Debug dbg, void **cuArr_out, int *cuQty_out)
 
             if( !low ) continue;
 
-            if( !hasLow || low<cuInfo->low )
-            {
+            if( !cuInfo->low || low<cuInfo->low )
               cuInfo->low = low;
-              hasLow = 1;
-            }
             if( high>cuInfo->high )
               cuInfo->high = high;
 
@@ -716,11 +714,8 @@ void dwstReadCUs(Dwarf_Debug dbg, void **cuArr_out, int *cuQty_out)
                 debug_addr_unavailable || !lowpc )
               continue;
 
-            if( !hasLow || lowpc<cuInfo->low )
-            {
+            if( !cuInfo->low || lowpc<cuInfo->low )
               cuInfo->low = lowpc;
-              hasLow = 1;
-            }
             if( highpc>cuInfo->high )
               cuInfo->high = highpc;
 
