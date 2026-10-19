@@ -440,12 +440,25 @@ typedef struct cu_info {
   int rangeCount;
 } cu_info;
 
-int dwstOfDwarfDebugExt(Dwarf_Debug dbg, Dwarf_Addr imageBase_dbg,
-                        const char *name, const wchar_t *nameW,
-                        uint64_t imageBase, uint64_t *addr, int count,
-                        dwstCallback *callbackFunc,
-                        dwstCallbackW *callbackFuncW, void *callbackContext,
-                        cu_info *cuArr, int cuQty) {
+struct dwst_module
+{
+  Dwarf_Debug dbg;
+  Dwarf_Addr imageBase_dbg;
+  cu_info *cuArr;
+  int cuQty;
+};
+
+static int dwstOfModuleExt(
+    dwst_module *module,const char *name,const wchar_t *nameW,
+    uint64_t imageBase,uint64_t *addr,int count,
+    dwstCallback *callbackFunc,dwstCallbackW *callbackFuncW,
+    void *callbackContext )
+{
+  Dwarf_Debug dbg = module->dbg;
+  Dwarf_Addr imageBase_dbg = module->imageBase_dbg;
+  cu_info *cuArr = module->cuArr;
+  int cuQty = module->cuQty;
+
   uint64_t baseOffs = 0;
   if( imageBase )
   {
@@ -575,31 +588,14 @@ int dwstOfDwarfDebugExt(Dwarf_Debug dbg, Dwarf_Addr imageBase_dbg,
   return( i );
 }
 
-int dwstOfDwarfDebug(Dwarf_Debug dbg, Dwarf_Addr imageBase_dbg,
-                     const char *name, uint64_t imageBase, uint64_t *addr,
-                     int count, dwstCallback *callbackFunc,
-                     void *callbackContext, void *cuArr, int cuQty)
+dwst_module *dwstModuleOpen(
+    void *dbg,uint64_t imageBase_dbg )
 {
-  wchar_t *nameW = dwst_ansi2wide(name);
-  int ret = dwstOfDwarfDebugExt(dbg, imageBase_dbg, name, nameW, imageBase,
-                                addr, count, callbackFunc, NULL,
-                                callbackContext, cuArr, cuQty);
-  free(nameW);
-  return (ret);
-}
+  if( !dbg ) return( NULL );
 
-int dwstOfDwarfDebugW(Dwarf_Debug dbg, Dwarf_Addr imageBase_dbg,
-                      const wchar_t *nameW, uint64_t imageBase, uint64_t *addr,
-                      int count, dwstCallbackW *callbackFuncW,
-                      void *callbackContext, void *cuArr, int cuQty)
-{
-  return (dwstOfDwarfDebugExt(dbg, imageBase_dbg, NULL, nameW, imageBase, addr,
-                              count, NULL, callbackFuncW, callbackContext,
-                              cuArr, cuQty));
-}
+  dwst_module *module = malloc( sizeof(dwst_module) );
+  if( !module ) return( NULL );
 
-void dwstReadCUs(Dwarf_Debug dbg, void **cuArr_out, int *cuQty_out)
-{
   cu_info *cuArr = NULL;
   int cuQty = 0;
   while( 1 )
@@ -739,14 +735,23 @@ void dwstReadCUs(Dwarf_Debug dbg, void **cuArr_out, int *cuQty_out)
     dwarf_dealloc( dbg,die,DW_DLA_DIE );
   }
 
-  *cuArr_out = cuArr;
-  *cuQty_out = cuQty;
+  module->dbg = dbg;
+  module->imageBase_dbg = imageBase_dbg;
+  module->cuArr = cuArr;
+  module->cuQty = cuQty;
+
+  return( module );
 }
 
-void dwstFreeCUs(Dwarf_Debug dbg, void *cuArr_, int cuQty)
+void dwstModuleClose(
+    dwst_module *module )
 {
+  if( !module ) return;
+
+  Dwarf_Debug dbg = module->dbg;
+  cu_info *cuArr = module->cuArr;
+  int cuQty = module->cuQty;
   int j;
-  cu_info *cuArr = (cu_info*)cuArr_;
   for( j=0; j<cuQty; j++ )
   {
     if( cuArr[j].lines )
@@ -766,6 +771,7 @@ void dwstFreeCUs(Dwarf_Debug dbg, void *cuArr_, int cuQty)
     free( cuArr[j].ranges );
   }
   free( cuArr );
+  free( module );
 }
 
 int dwstOfFileExt(
@@ -793,19 +799,19 @@ int dwstOfFileExt(
     return( count );
   }
 
-  cu_info *cuArr = NULL;
-  int cuQty = 0;
-  dwstReadCUs(dbg, (void**)&cuArr, &cuQty);
+  int ret = 0;
+  dwst_module *module = dwstModuleOpen( dbg,imageBase_dbg );
+  if( module )
+  {
+    ret = dwstOfModuleExt( module,name,nameW,imageBase,addr,count,
+        callbackFunc,callbackFuncW,callbackContext );
 
-  int res = dwstOfDwarfDebugExt(dbg, imageBase_dbg, name, nameW, imageBase,
-                                addr, count, callbackFunc, callbackFuncW,
-                                callbackContext, cuArr, cuQty);
-
-  dwstFreeCUs(dbg, cuArr, cuQty);
+    dwstModuleClose( module );
+  }
 
   dwarf_pe_finish(dbg, NULL);
 
-  return (res);
+  return( ret );
 }
 
 int dwstOfFile(

@@ -20,7 +20,6 @@
 #ifndef __DWARFSTACK_H__
 #define __DWARFSTACK_H__
 
-#include "libdwarf.h"
 #include <stdint.h>
 
 
@@ -76,21 +75,20 @@ typedef void dwstCallbackW(
 //   filename:          executable location
 #define DWST_NOT_FOUND          -3
 
-EXPORT int dwstOfDwarfDebug(Dwarf_Debug dbg, uint64_t imageBase_dbg,
-                            const char *name, uint64_t imageBase,
-                            uint64_t *addr, int count,
-                            dwstCallback *callbackFunc, void *callbackContext,
-                            void *cuArr, int cuQty);
+typedef struct dwst_module dwst_module;
 
-EXPORT int dwstOfDwarfDebugW(Dwarf_Debug dbg, uint64_t imageBase_dbg,
-                             const wchar_t *nameW, uint64_t imageBase,
-                             uint64_t *addr, int count,
-                             dwstCallbackW *callbackFuncW,
-                             void *callbackContext, void *cuArr, int cuQty);
+// dwstModuleOpen(): prepare debug information for repeated lookups
+//   dbg:               Dwarf_Debug of the executable
+//                        (has to stay valid until dwstModuleClose())
+//   imageBase_dbg:     preferred image base address of the executable
+EXPORT dwst_module *dwstModuleOpen(
+    void *dbg,uint64_t imageBase_dbg );
 
-EXPORT void dwstReadCUs(Dwarf_Debug dbg, void **cuArr_out, int *cuQty_out);
-
-EXPORT void dwstFreeCUs(Dwarf_Debug dbg, void *cuArr, int cuQty);
+// dwstModuleClose(): free module created by dwstModuleOpen()
+//   (dbg itself is not freed)
+//   module:            module handle
+EXPORT void dwstModuleClose(
+    dwst_module *module );
 
 // dwstOfFile(): stack information of file
 //   name:              executable location
